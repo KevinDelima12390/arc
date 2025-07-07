@@ -18,7 +18,7 @@ This project is a real-time human detection and tracking system using a webcam a
 
 1.  **Navigate to the project directory:**
     ```bash
-    cd /Users/kevinarthurdelima/Desktop/test2/yolo_human_tracker
+    cd yolo_human_tracker
     ```
 
 2.  **Create a virtual environment (recommended):**
