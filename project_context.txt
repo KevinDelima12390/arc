@@ -3,3 +3,5 @@ The AI Human Tracking System is currently at a stable and fully functional check
 Updated tracker.py with comprehensive inline documentation for better readability and maintainability.
 
 Created a .gitignore file to exclude unnecessary files from version control.
+
+Initialized a Git repository and made the initial commit.
