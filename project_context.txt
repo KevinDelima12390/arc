@@ -5,3 +5,17 @@ Updated tracker.py with comprehensive inline documentation for better readabilit
 Created a .gitignore file to exclude unnecessary files from version control.
 
 Initialized a Git repository and made the initial commit.
+
+Refactored core tracking logic into `human_tracker_backend.py`.
+
+Implemented a new GUI using PyQt6 in `gui_tracker.py` with low-light enhancement and facial recognition toggles.
+
+Fixed `AttributeError: 'HumanTrackerBackend' object has no attribute 'paused'` by adding the `paused` attribute to the `HumanTrackerBackend` class.
+
+Fixed `NameError: name 'time' is not defined` in `gui_tracker.py` by adding `import time`.
+
+Added FPS counter to the GUI side panel and implemented the naming functionality via a button.
+
+Modified `human_tracker_backend.py` to display information for 'Unidentified' faces in the GUI's recognized person info panel.
+
+Fixed `SyntaxError` in `human_tracker_backend.py` by removing a problematic empty line with a backslash.
