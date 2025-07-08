@@ -1,6 +1,6 @@
 import sys
 import cv2
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QInputDialog, QGroupBox
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QInputDialog, QGroupBox, QMessageBox
 from PyQt6.QtGui import QImage, QPixmap, QIcon
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
 import numpy as np
@@ -12,21 +12,47 @@ from human_tracker_backend import HumanTrackerBackend
 VIDEO_DISPLAY_WIDTH = 800
 VIDEO_DISPLAY_HEIGHT = 600
 
+def detect_available_cameras():
+    """Scans for and returns a list of available camera indices."""
+    available_cameras = []
+    # Iterate through a reasonable range of camera indices
+    for i in range(10):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            # Attempt to read a frame to confirm the camera is truly functional
+            ret, frame = cap.read()
+            if ret:
+                available_cameras.append(i)
+            cap.release()
+    return available_cameras
+
 class VideoStreamThread(QThread):
     change_pixmap_signal = pyqtSignal(QImage)
     update_info_signal = pyqtSignal(dict)
     update_fps_signal = pyqtSignal(int)
-    error_signal = pyqtSignal(str) 
+    error_signal = pyqtSignal(str)
+    camera_name_signal = pyqtSignal(str)
 
-    def __init__(self, backend, parent=None):
-        super().__init__(parent) 
+    def __init__(self, backend, camera_index, parent=None):
+        super().__init__(parent)
         self._run = True
         self.backend = backend
-        self.cap = cv2.VideoCapture(0) 
+        self.camera_index = camera_index
+        self.cap = cv2.VideoCapture(self.camera_index)
+        
         if not self.cap.isOpened():
             self._run = False
-            self.error_signal.emit("Error: Could not open video stream. Check camera connection.")
-            print("Error: Could not open video stream.")
+            self.error_signal.emit(f"Error: Could not open camera index {self.camera_index}.")
+            print(f"Error: Could not open camera index {self.camera_index}.")
+        else:
+            # Try to get the camera name (this is not always supported)
+            try:
+                # Note: This property is not standard and may not work on all platforms/drivers
+                camera_name = self.cap.getBackendName()
+            except Exception:
+                camera_name = f"Camera {self.camera_index}"
+            self.camera_name_signal.emit(camera_name)
+            
         self.prev_frame_time = 0
 
     def run(self):
@@ -131,29 +157,59 @@ class HumanTrackerGUI(QWidget):
     def __init__(self):
         super().__init__()
         self.backend = HumanTrackerBackend()
-        self.thread = None 
+        self.thread = None
+        
+        # --- Camera Detection ---
+        self.available_cameras = detect_available_cameras()
+        if not self.available_cameras:
+            app = QApplication.instance()
+            if not app:
+                app = QApplication(sys.argv)
+            error_dialog = QMessageBox()
+            error_dialog.setIcon(QMessageBox.Icon.Critical)
+            error_dialog.setText("No cameras found!")
+            error_dialog.setInformativeText("Please ensure a camera is connected and drivers are installed.")
+            error_dialog.setWindowTitle("Camera Error")
+            error_dialog.exec()
+            sys.exit(1) # Exit if no cameras are found
+
+        if len(self.available_cameras) > 1:
+            camera_options = [f"Camera {idx}" for idx in self.available_cameras]
+            item, ok = QInputDialog.getItem(
+                self, "Select Camera", "Choose a camera:",
+                camera_options, 0, False
+            )
+            if ok and item:
+                self.camera_index = self.available_cameras[camera_options.index(item)]
+            else:
+                # User cancelled, exit or default to first camera
+                sys.exit(0) # Exit if user cancels
+        else:
+            self.camera_index = self.available_cameras[0]
+
         self.init_ui()
-        self.start_video_stream() 
+        self.start_video_stream()
 
     def init_ui(self):
         self.setWindowTitle("Human Tracking with Face Recognition")
-        # Adjust overall window size to accommodate fixed video size + side panel
-        self.setGeometry(100, 100, VIDEO_DISPLAY_WIDTH + 400, VIDEO_DISPLAY_HEIGHT + 100) 
+        self.setGeometry(100, 100, VIDEO_DISPLAY_WIDTH + 400, VIDEO_DISPLAY_HEIGHT + 100)
 
         main_layout = QHBoxLayout()
         video_panel_layout = QVBoxLayout()
         right_panel_layout = QVBoxLayout()
 
-        # --- Video Display Area ---
         self.video_label = QLabel()
-        # --- CHANGE HERE: Set fixed size and policy ---
-        self.video_label.setFixedSize(VIDEO_DISPLAY_WIDTH, VIDEO_DISPLAY_HEIGHT) 
-        self.video_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed) 
+        self.video_label.setFixedSize(VIDEO_DISPLAY_WIDTH, VIDEO_DISPLAY_HEIGHT)
+        self.video_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_label.setStyleSheet("background-color: black; border: 1px solid #333;") 
+        self.video_label.setStyleSheet("background-color: black; border: 1px solid #333;")
         video_panel_layout.addWidget(self.video_label)
 
-        # --- Controls Group ---
+        # --- Camera Info Label ---
+        self.camera_info_label = QLabel("Camera: Detecting...")
+        self.camera_info_label.setStyleSheet("font-style: italic; color: #aaa;")
+        video_panel_layout.addWidget(self.camera_info_label, alignment=Qt.AlignmentFlag.AlignCenter)
+
         controls_group_box = QGroupBox("Controls")
         controls_layout = QHBoxLayout()
         controls_group_box.setLayout(controls_layout)
@@ -174,9 +230,13 @@ class HumanTrackerGUI(QWidget):
         self.ll_toggle_button.clicked.connect(self.toggle_ll)
         controls_layout.addWidget(self.ll_toggle_button)
 
-        self.name_button = QPushButton("Name Person")
+        self.name_button = QPushButton("Name Unidentified")
         self.name_button.clicked.connect(self.name_person)
         controls_layout.addWidget(self.name_button)
+
+        self.edit_name_button = QPushButton("Edit Name")
+        self.edit_name_button.clicked.connect(self.edit_name)
+        controls_layout.addWidget(self.edit_name_button)
         
         video_panel_layout.addWidget(controls_group_box)
         main_layout.addLayout(video_panel_layout) # No stretch factor needed if video label is fixed
@@ -225,16 +285,21 @@ class HumanTrackerGUI(QWidget):
 
     def start_video_stream(self):
         if self.thread and self.thread.isRunning():
-            self.thread.stop() 
+            self.thread.stop()
             self.thread.wait()
         
-        self.thread = VideoStreamThread(self.backend, parent=self) 
+        self.thread = VideoStreamThread(self.backend, self.camera_index, parent=self)
         self.thread.change_pixmap_signal.connect(self.update_image)
         self.thread.update_info_signal.connect(self.update_info_panel)
         self.thread.update_fps_signal.connect(self.update_fps)
-        self.thread.error_signal.connect(self.display_error_message) 
+        self.thread.error_signal.connect(self.display_error_message)
+        self.thread.camera_name_signal.connect(self.update_camera_name) # Connect the new signal
         self.thread.start()
         self.status_bar.setText("Video stream started. Initializing models...")
+
+    def update_camera_name(self, name):
+        """Updates the camera info label in the GUI."""
+        self.camera_info_label.setText(f"Source: {name}")
 
 
     def update_image(self, qt_image):
@@ -310,22 +375,38 @@ class HumanTrackerGUI(QWidget):
         unidentified_face_ids = self.backend.get_unidentified_face_ids()
         if unidentified_face_ids:
             item, ok = QInputDialog.getItem(
-                self, "Name Person", "Select an Unidentified Person ID:", 
+                self, "Name Unidentified Person", "Select an Unidentified Person ID:", 
                 unidentified_face_ids, 0, False
             )
             if ok and item:
                 target_face_id = item
-                new_name, ok_name = QInputDialog.getText(self, "Name Person", f"Enter a name for {target_face_id}:")
-                if ok_name and new_name:
-                    if self.backend.name_unidentified_person(target_face_id, new_name):
-                        print(f"Assigned name '{new_name}' to face ID {target_face_id}.")
-                        self.status_bar.setText(f"Assigned '{new_name}' to ID '{target_face_id}'.")
+                new_name, ok_name = QInputDialog.getText(self, "Enter Name", f"Enter a name for {target_face_id}:")
+                if ok_name and new_name and not new_name.isspace():
+                    success, message = self.backend.name_unidentified_person(target_face_id, new_name)
+                    if success:
+                        self.status_bar.setText(message)
                     else:
-                        print(f"Error: Face ID {target_face_id} not found in database or could not be named.")
-                        self.display_error_message(f"Error: Could not name ID '{target_face_id}'. Check backend logs.")
+                        self.display_error_message(message)
         else:
-            print("No 'Unidentified' person currently tracked to name.")
-            self.status_bar.setText("No 'Unidentified' person to name.")
+            self.status_bar.setText("No 'Unidentified' person currently tracked to name.")
+
+    def edit_name(self):
+        known_names = self.backend.get_known_person_names()
+        if known_names:
+            old_name, ok = QInputDialog.getItem(
+                self, "Edit Person's Name", "Select a person to rename:",
+                known_names, 0, False
+            )
+            if ok and old_name:
+                new_name, ok_name = QInputDialog.getText(self, "Enter New Name", f"Enter a new name for {old_name}:")
+                if ok_name and new_name and not new_name.isspace():
+                    success, message = self.backend.edit_person_name(old_name, new_name)
+                    if success:
+                        self.status_bar.setText(message)
+                    else:
+                        self.display_error_message(message)
+        else:
+            self.status_bar.setText("No named people in the database to edit.")
             
     def display_error_message(self, message):
         self.status_bar.setText(f"ERROR: {message}")
