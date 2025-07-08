@@ -50,4 +50,7 @@ This project is a real-time human detection and tracking system using a webcam a
 -   **v1.1:** Added pause/quit functionality, an FPS counter, and an automatic zoom feature.
 -   **v1.2:** Migrated to a NiceGUI web interface with a multi-threaded architecture for smooth video streaming and added a large FPS counter and live logging panel.
 -   **v1.3:** Refactored to a hybrid GUI: OpenCV window for video display, NiceGUI for controls and logs. Improved stability and performance by ensuring OpenCV GUI calls are on the main thread. Added loading screen to OpenCV window.
+## Change Log
+
+-   **v1.5:** Fixed a critical bug in the person naming system that caused instability and data corruption. The naming logic is now robust, ensuring that once a person is named, they are permanently and reliably recognized across sessions. Also improved the efficiency of the face recognition process to prevent unnecessary re-identifications.
 -   **v1.4:** Reverted to a pure OpenCV application for maximum stability and reliability. Removed NiceGUI and all threading complexities. Controls are now keyboard-based within the OpenCV window.

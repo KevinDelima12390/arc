@@ -162,10 +162,8 @@ class HumanTrackerBackend:
         known_face_encodings_list = []
         known_face_ids_list = []
         for face_id, data in self.known_faces_db.items():
-             if isinstance(face_id, str) and not face_id.startswith("Unidentified_") and face_id != "No Face Detected":
-                 known_face_encodings_list.extend(list(data['encodings']))
-                 known_face_ids_list.extend([face_id] * len(data['encodings']))
-             elif isinstance(face_id, str) and face_id.startswith("Unidentified_"):
+             # We only want to match against faces that have a proper name or are unidentified
+             if (isinstance(face_id, str) and data.get('name', 'Unknown') != 'Unknown') or face_id.startswith("Unidentified_"):
                  known_face_encodings_list.extend(list(data['encodings']))
                  known_face_ids_list.extend([face_id] * len(data['encodings']))
 
@@ -183,9 +181,7 @@ class HumanTrackerBackend:
             person_name = obj_data.get('name', 'Unknown')
 
             needs_face_processing = self.face_recognition_enabled and \
-                                    (current_face_id is None or \
-                                     (isinstance(current_face_id, str) and current_face_id.startswith("Unidentified_")) or \
-                                     current_face_id == "No Face Detected")
+                                    (current_face_id is None or current_face_id == "No Face Detected")
 
             detected_face_encoding = None
             new_face_rect_in_roi = None
@@ -203,81 +199,64 @@ class HumanTrackerBackend:
                          detected_face_encoding = None
 
             if detected_face_encoding is not None:
+                match_found = False
                 if known_face_encodings_list:
                     face_distances = face_recognition.face_distance(known_face_encodings_list, detected_face_encoding)
                     best_match_index = np.argmin(face_distances)
                     min_distance = face_distances[best_match_index]
 
                     if min_distance < self.FACE_RECOGNITION_DISTANCE_THRESHOLD:
+                        match_found = True
                         assigned_face_id = known_face_ids_list[best_match_index]
                         face_confidence = 1.0 - min_distance
-                        person_name = self.known_faces_db.get(assigned_face_id, {}).get('name', 'Unknown')
+                        person_name = self.known_faces_db[assigned_face_id].get('name', 'Unknown')
 
-                        if len(self.known_faces_db[assigned_face_id]['encodings']) < self.MAX_FACE_IMAGES_PER_PERSON:
-                            is_distinct = True
-                            target_encodings = list(self.known_faces_db[assigned_face_id]['encodings'])
-                            if target_encodings:
-                                distances_to_person = face_recognition.face_distance(target_encodings, detected_face_encoding)
-                                if np.min(distances_to_person) < self.MIN_DISTINCT_FACE_DISTANCE:
-                                    is_distinct = False
+                        # Add new encoding to the matched person if it's distinct
+                        target_encodings = list(self.known_faces_db[assigned_face_id]['encodings'])
+                        if target_encodings:
+                            distances_to_person = face_recognition.face_distance(target_encodings, detected_face_encoding)
+                            if np.min(distances_to_person) > self.MIN_DISTINCT_FACE_DISTANCE:
+                                if len(self.known_faces_db[assigned_face_id]['encodings']) < self.MAX_FACE_IMAGES_PER_PERSON:
+                                    self.known_faces_db[assigned_face_id]['encodings'].append(detected_face_encoding)
+                                    print(f"Added new distinct encoding for {assigned_face_id}.")
+                        else: # First encoding for a person somehow
+                             self.known_faces_db[assigned_face_id]['encodings'].append(detected_face_encoding)
 
-                            if is_distinct:
-                                face_updates_to_save[assigned_face_id] = {
-                                    'encoding': detected_face_encoding,
-                                    'image': None,
-                                    'name': person_name
-                                }
-                                print(f"Added new distinct encoding for {assigned_face_id}.")
-                                top, right, bottom, left = new_face_rect_in_roi
-                                face_img = rgb_human_roi[top:bottom, left:right]
-                                if face_img.shape[0] > 0 and face_img.shape[1] > 0:
-                                     face_updates_to_save[assigned_face_id]['image'] = cv2.resize(face_img, (100, 100))
 
-                    else:
-                        assigned_face_id = f"Unidentified_{self.next_person_id_counter}"
-                        face_confidence = 0.0
-                        person_name = 'Unknown'
-
-                        while assigned_face_id in self.known_faces_db:
-                             self.next_person_id_counter += 1
-                             assigned_face_id = f"Unidentified_{self.next_person_id_counter}"
-
-                        self.next_person_id_counter += 1
-
-                        face_updates_to_save[assigned_face_id] = {
-                            'encodings': deque([detected_face_encoding], maxlen=self.MAX_FACE_IMAGES_PER_PERSON),
-                            'image': None,
-                            'name': 'Unknown'
-                        }
-                        top, right, bottom, left = new_face_rect_in_roi
-                        face_img = rgb_human_roi[top:bottom, left:right]
-                        if face_img.shape[0] > 0 and face_img.shape[1] > 0:
-                            face_updates_to_save[assigned_face_id]['image'] = cv2.resize(face_img, (100, 100))
-                        print(f"New unidentified face detected, assigned ID: {assigned_face_id}")
-
-                else:
+                if not match_found:
+                    # No match found, create a new Unidentified person
                     assigned_face_id = f"Unidentified_{self.next_person_id_counter}"
                     face_confidence = 0.0
                     person_name = 'Unknown'
+
+                    while assigned_face_id in self.known_faces_db:
+                        self.next_person_id_counter += 1
+                        assigned_face_id = f"Unidentified_{self.next_person_id_counter}"
+                    
                     self.next_person_id_counter += 1
 
-                    face_updates_to_save[assigned_face_id] = {
-                         'encodings': deque([detected_face_encoding], maxlen=self.MAX_FACE_IMAGES_PER_PERSON),
-                         'image': None,
-                         'name': 'Unknown'
+                    self.known_faces_db[assigned_face_id] = {
+                        'encodings': deque([detected_face_encoding], maxlen=self.MAX_FACE_IMAGES_PER_PERSON),
+                        'image': None,
+                        'name': 'Unknown'
                     }
+                    
                     top, right, bottom, left = new_face_rect_in_roi
                     face_img = rgb_human_roi[top:bottom, left:right]
                     if face_img.shape[0] > 0 and face_img.shape[1] > 0:
-                         face_updates_to_save[assigned_face_id]['image'] = cv2.resize(face_img, (100, 100))
-                    print(f"First face detected, assigned ID: {assigned_face_id}")
+                        bgr_face_img = cv2.cvtColor(cv2.resize(face_img, (100, 100)), cv2.COLOR_RGB2BGR)
+                        self.known_faces_db[assigned_face_id]['image'] = bgr_face_img
+                    
+                    print(f"New unidentified face detected, assigned ID: {assigned_face_id}")
 
             elif needs_face_processing:
+                # No face was detected in the ROI for a new person
                 assigned_face_id = "No Face Detected"
                 face_rect_in_roi = None
                 face_confidence = 0.0
                 person_name = 'Unknown'
 
+            # Update the tracked object with the new face info
             final_tracked_objects[person_id] = {
                 'box': obj_data['box'],
                 'centroid': obj_data['centroid'],
@@ -286,17 +265,6 @@ class HumanTrackerBackend:
                 'face_confidence': face_confidence,
                 'name': person_name
             }
-
-        for face_id, update_data in face_updates_to_save.items():
-            if face_id.startswith("Unidentified_") and 'encodings' in update_data:
-                self.known_faces_db[face_id] = update_data
-            elif face_id in self.known_faces_db:
-                if 'encoding' in update_data:
-                    self.known_faces_db[face_id]['encodings'].append(update_data['encoding'])
-                if update_data.get('image') is not None:
-                    self.known_faces_db[face_id]['image'] = update_data['image']
-                if update_data.get('name') != 'Unknown':
-                     self.known_faces_db[face_id]['name'] = update_data['name']
 
         self.tracked_objects = final_tracked_objects
         return frame, self.tracked_objects, self.known_faces_db
@@ -319,14 +287,37 @@ class HumanTrackerBackend:
         return None
 
     def name_unidentified_person(self, target_face_id, new_name):
+        # Check if the new name already exists to avoid conflicts
+        if new_name in self.known_faces_db:
+            print(f"Error: The name '{new_name}' already exists in the database.")
+            return False
+
         if target_face_id in self.known_faces_db:
-            self.known_faces_db[target_face_id]['name'] = new_name
-            # Update any currently tracked objects that might have this face_id
-            for p_id, obj_data in self.tracked_objects.items():
+            # 1. Get the data from the old "Unidentified" entry
+            unidentified_person_data = self.known_faces_db[target_face_id]
+
+            # 2. Create a new entry with the new name as the key
+            self.known_faces_db[new_name] = {
+                'encodings': unidentified_person_data.get('encodings', deque(maxlen=self.MAX_FACE_IMAGES_PER_PERSON)),
+                'image': unidentified_person_data.get('image'),
+                'name': new_name  # Set the name explicitly
+            }
+
+            # 3. Remove the old "Unidentified" entry
+            del self.known_faces_db[target_face_id]
+
+            # 4. Update any currently tracked objects that have the old face_id
+            for person_id, obj_data in self.tracked_objects.items():
                 if obj_data.get('face_id') == target_face_id:
-                    self.tracked_objects[p_id]['name'] = new_name
+                    self.tracked_objects[person_id]['face_id'] = new_name
+                    self.tracked_objects[person_id]['name'] = new_name
+            
+            # 5. Save the updated database to disk
             self.save_known_faces()
+            print(f"Successfully renamed '{target_face_id}' to '{new_name}'.")
             return True
+            
+        print(f"Error: Could not find '{target_face_id}' to name.")
         return False
 
     def get_unidentified_face_ids(self):
