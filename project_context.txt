@@ -1,4 +1,6 @@
-The AI Human Tracking System is currently at a stable and fully functional checkpoint (Version 1.4), using a pure OpenCV GUI for video display and controls.
+The AI Human Tracking System is currently at a stable and fully functional checkpoint (Version 1.6).
+
+Refactored the codebase to centralize the drawing logic, resulting in a more streamlined and maintainable codebase with reduced code duplication.
 
 Updated tracker.py with comprehensive inline documentation for better readability and maintainability.
 
@@ -19,3 +21,11 @@ Added FPS counter to the GUI side panel and implemented the naming functionality
 Modified `human_tracker_backend.py` to display information for 'Unidentified' faces in the GUI's recognized person info panel.
 
 Fixed `SyntaxError` in `human_tracker_backend.py` by removing a problematic empty line with a backslash.
+
+Stabilized and refined the person naming system, ensuring consistent recognition and persistence of named individuals.
+
+Implemented an "Edit Name" feature in the GUI, allowing users to rename existing recognized individuals.
+
+Improved face recognition logic to continuously learn and update facial data for tracked individuals, enhancing long-term accuracy.
+
+Implemented automatic camera detection with a user selection dialog for multiple cameras, improving hardware flexibility.

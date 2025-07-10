@@ -1,4 +1,21 @@
+# This file lists the Python packages required to run the AI Human Tracking System.
+# Install these dependencies using pip: `pip install -r requirements.txt`
+
+# Numerical computing library, fundamental for array operations in computer vision.
 numpy==1.26.4
+
+# OpenCV (Open Source Computer Vision Library) Python bindings.
+# Essential for video capture, image processing, and drawing functionalities.
 opencv-python==4.8.0.76
+
+# Ultralytics YOLO (You Only Look Once) library.
+# Used for real-time object detection, specifically for detecting humans.
 ultralytics
+
+# Face recognition library built upon dlib's state-of-the-art face recognition.
+# Used for detecting, recognizing, and managing human faces.
 face_recognition
+
+# PyQt6 is a set of Python bindings for the Qt application framework.
+# It is used for building the graphical user interface (GUI) of the application.
+PyQt6
